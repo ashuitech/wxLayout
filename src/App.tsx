@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { MarkdownParser } from './utils/markdownParser';
 import { HTMLGenerator } from './utils/htmlGenerator';
 import { themes } from './constants/themes';
@@ -8,7 +8,11 @@ import Preview from './components/Preview';
 import ThemeSelector from './components/ThemeSelector';
 import StyleControls from './components/StyleControls';
 import Header from './components/Header';
-import { Copy, Download, FileText } from 'lucide-react';
+import Sidebar from './components/Sidebar';
+import { Copy, Download, FileText, Eye } from 'lucide-react';
+import Toast from './components/Toast';
+import ConfirmDialog from './components/ConfirmDialog';
+import { themes as defaultThemes } from './constants/themes';
 
 const defaultMarkdown = `# 欢迎使用微信公众号自动排版工具
 
@@ -37,12 +41,6 @@ const defaultMarkdown = `# 欢迎使用微信公众号自动排版工具
 
 ## 使用示例
 
-### 步骤说明
-**步骤一**：在左侧编辑器输入Markdown内容
-**步骤二**：选择喜欢的主题风格
-**步骤三**：调整样式参数
-**步骤四**：点击复制按钮，粘贴到微信公众号
-
 ### 代码示例
 \`\`\`javascript
 function greet(name) {
@@ -56,9 +54,6 @@ console.log(greet('World'));
 > 这是一段引用内容，用于强调重要信息。
 > 支持多行引用，自动应用主题样式。
 
-### 对比分析
-**对比分析**：传统排版工具需要手动调整格式，而本工具可以实现一键自动排版，效率提升10倍以上。
-
 ### 表格示例
 | 功能 | 传统方式 | 本工具 |
 |------|---------|--------|
@@ -66,45 +61,104 @@ console.log(greet('World'));
 | 样式一致性 | 难以保证 | 完美一致 |
 | 主题切换 | 需要重新排版 | 一键切换 |
 
-### 列表示例
-- 支持无序列表
-- 支持有序列表
-- 支持嵌套列表
-1. 第一步
-2. 第二步
-3. 第三步
-
 开始体验吧！在左侧编辑器中输入您的Markdown内容，右侧将实时预览排版效果。`;
 
 function App() {
   const [markdown, setMarkdown] = useState(defaultMarkdown);
   const [html, setHtml] = useState('');
-  const [selectedTheme, setSelectedTheme] = useState<Theme>(themes[0]);
+  const [selectedTheme, setSelectedTheme] = useState<Theme>(defaultThemes[0]);
+  const [customThemes, setCustomThemes] = useState<Theme[]>([]);
   const [styleSettings, setStyleSettings] = useState<StyleSettings>({
     accentColor: themes[0].styles.primaryColor,
     paragraphSpacing: 'standard',
-    fontSize: 'medium'
+    fontSize: 'medium',
+    headingAlign: 'left',
+    paragraphAlign: 'left',
+    lineHeight: '1.75',
+    paragraphSpacingBefore: '0px',
+    paragraphSpacingAfter: '20px',
+    firstLineIndent: false,
+    indentWidth: '2em',
+    headingDecoration: 'none',
+    headingNumbering: false,
+    componentStyle: 'card',
+    componentShadow: false,
+    componentRounded: true,
+    linkUnderline: false,
+    linkColor: themes[0].styles.primaryColor,
+    imageAlign: 'center',
+    imageWidth: '100%',
+    imageCaption: true,
+    tableStyle: 'striped',
+    tableDensity: 'standard',
+    codeTheme: 'dark',
+    codeShowLanguage: true,
+    codeShowLineNumbers: false
   });
+  const [toast, setToast] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [themeToDelete, setThemeToDelete] = useState<string | null>(null);
 
   useEffect(() => {
     generateHtml();
   }, [markdown, selectedTheme, styleSettings]);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('wx-custom-themes');
+      if (saved) {
+        const list = JSON.parse(saved) as Theme[];
+        setCustomThemes(list);
+      }
+    } catch {}
+  }, []);
+
   const generateHtml = () => {
-    const parser = new MarkdownParser();
-    const blocks = parser.parse(markdown);
-    const generator = new HTMLGenerator(selectedTheme, styleSettings);
-    const generatedHtml = generator.generate(blocks);
-    setHtml(generatedHtml);
+    try {
+      const parser = new MarkdownParser();
+      const blocks = parser.parse(markdown);
+      const generator = new HTMLGenerator(selectedTheme, styleSettings);
+      const generatedHtml = generator.generate(blocks);
+      setHtml(generatedHtml);
+    } catch (err) {
+      console.error('生成HTML失败:', err);
+    }
   };
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(html);
-      alert('已复制到剪贴板！现在可以粘贴到微信公众号编辑器了。');
+      const plain = (() => {
+        const div = document.createElement('div');
+        div.innerHTML = html;
+        return div.textContent || '';
+      })();
+      if (navigator.clipboard && (window as any).ClipboardItem) {
+        const data = new (window as any).ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([plain], { type: 'text/plain' })
+        });
+        await navigator.clipboard.write([data]);
+        setToast('已复制为富文本，可直接粘贴到公众号');
+        return;
+      }
+      const temp = document.createElement('div');
+      temp.style.position = 'fixed';
+      temp.style.left = '-9999px';
+      temp.contentEditable = 'true';
+      temp.innerHTML = html;
+      document.body.appendChild(temp);
+      const range = document.createRange();
+      range.selectNodeContents(temp);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      document.execCommand('copy');
+      document.body.removeChild(temp);
+      sel?.removeAllRanges();
+      setToast('已复制为富文本，可直接粘贴到公众号');
     } catch (err) {
       console.error('复制失败:', err);
-      alert('复制失败，请手动复制预览区域的内容。');
+      setToast('复制失败，请手动复制预览内容');
     }
   };
 
@@ -120,70 +174,152 @@ function App() {
 
   const handleThemeChange = (theme: Theme) => {
     setSelectedTheme(theme);
-    setStyleSettings(prev => ({
-      ...prev,
-      accentColor: theme.styles.primaryColor
-    }));
+    if (theme.settings) {
+      setStyleSettings(theme.settings);
+    } else {
+      setStyleSettings(prev => ({
+        ...prev,
+        accentColor: theme.styles.primaryColor
+      }));
+    }
   };
 
+  const handleThemeStylesChange = (styles: Theme['styles']) => {
+    setSelectedTheme(prev => ({ ...prev, styles }));
+  };
+
+  const handleSaveCustomTheme = (name: string) => {
+    const id = `custom-${Date.now()}`;
+    const theme: Theme = {
+      id,
+      name: name || '自定义主题',
+      description: '用户自定义主题',
+      styles: { ...selectedTheme.styles },
+      settings: { ...styleSettings }
+    };
+    const next = [...customThemes, theme];
+    setCustomThemes(next);
+    try {
+      localStorage.setItem('wx-custom-themes', JSON.stringify(next));
+    } catch {}
+    setToast('已保存为新主题');
+  };
+
+  const handleDeleteTheme = (themeId: string) => {
+    setThemeToDelete(themeId);
+    setShowDeleteConfirm(true);
+  };
+
+  const executeDeleteTheme = () => {
+    if (!themeToDelete) return;
+    
+    const next = customThemes.filter(t => t.id !== themeToDelete);
+    setCustomThemes(next);
+    try {
+      localStorage.setItem('wx-custom-themes', JSON.stringify(next));
+    } catch {}
+    
+    if (selectedTheme.id === themeToDelete) {
+      handleThemeChange(defaultThemes[0]);
+    }
+    setToast('已删除主题');
+    setShowDeleteConfirm(false);
+    setThemeToDelete(null);
+  };
+
+  const allThemes = [...defaultThemes, ...customThemes];
+
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col h-screen bg-[#e8f0ec]">
       <Header />
-      
+      <Toast message={toast} onClose={() => setToast(null)} />
+      <ConfirmDialog
+        isOpen={showDeleteConfirm}
+        title="删除主题"
+        message={`确定要删除主题"${allThemes.find(t => t.id === themeToDelete)?.name}"吗？此操作无法撤销。`}
+        onConfirm={executeDeleteTheme}
+        onCancel={() => {
+          setShowDeleteConfirm(false);
+          setThemeToDelete(null);
+        }}
+      />
+
       <div className="flex-1 flex overflow-hidden">
-        <div className="w-1/2 flex flex-col border-r border-gray-200">
-          <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
-            <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-gray-600" />
-              <h2 className="font-semibold text-gray-800">Markdown 编辑器</h2>
-            </div>
-          </div>
-          <Editor value={markdown} onChange={setMarkdown} />
-        </div>
-
-        <div className="w-1/2 flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 bg-white border-b border-gray-200">
-            <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-gray-600" />
-              <h2 className="font-semibold text-gray-800">实时预览</h2>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleDownload}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
-              >
-                <Download className="w-4 h-4" />
-                下载
-              </button>
-              <button
-                onClick={handleCopy}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
-              >
-                <Copy className="w-4 h-4" />
-                复制到剪贴板
-              </button>
-            </div>
-          </div>
-          <Preview html={html} />
-        </div>
-      </div>
-
-      <div className="bg-white border-t border-gray-200 px-6 py-4">
-        <div className="max-w-7xl mx-auto">
-          <div className="flex items-center gap-8">
+        <Sidebar />
+        
+        <main className="flex-1 flex flex-col min-h-0 p-4 gap-4">
+          {/* Toolbar */}
+          <div className="panel-card px-4 py-2.5 flex items-center gap-2 flex-shrink-0" style={{ zIndex: 10 }}>
             <ThemeSelector
-              themes={themes}
+              themes={allThemes}
               selectedTheme={selectedTheme}
               onThemeChange={handleThemeChange}
+              onDeleteTheme={handleDeleteTheme}
             />
-            <div className="flex-1">
-              <StyleControls
-                settings={styleSettings}
-                onChange={setStyleSettings}
-              />
+            <StyleControls
+              settings={styleSettings}
+              onChange={setStyleSettings}
+              theme={selectedTheme}
+              onThemeStylesChange={handleThemeStylesChange}
+              onSaveCustomTheme={handleSaveCustomTheme}
+            />
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={handleDownload}
+              className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-medium text-slate-600 bg-white border border-slate-200 rounded-[10px] cursor-pointer hover:bg-slate-50 hover:border-slate-300"
+            >
+              <Download className="w-4 h-4" />
+              <span className="hidden sm:inline">导出HTML</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold text-white bg-[#1a5c3a] rounded-[10px] cursor-pointer hover:bg-[#145230] shadow-md"
+            >
+              <Copy className="w-4 h-4" />
+              <span>复制内容</span>
+            </button>
+          </div>
+
+          {/* Editor + Preview */}
+          <div className="flex-1 flex gap-4 min-h-0">
+            {/* Editor panel */}
+            <div className="w-1/2 panel-card flex flex-col min-h-0">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-50 flex items-center justify-center">
+                    <FileText className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <h2 className="text-sm font-semibold text-slate-700">Markdown 编辑器</h2>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-md">
+                    {markdown.length} 字
+                  </span>
+                </div>
+              </div>
+              <Editor value={markdown} onChange={setMarkdown} />
+            </div>
+
+            {/* Preview panel */}
+            <div className="w-1/2 panel-card flex flex-col min-h-0">
+              <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 flex-shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-teal-50 flex items-center justify-center">
+                    <Eye className="w-4 h-4 text-teal-600" />
+                  </div>
+                  <h2 className="text-sm font-semibold text-slate-700">实时预览</h2>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span className="text-xs text-slate-400">实时同步</span>
+                </div>
+              </div>
+              <Preview html={html} />
             </div>
           </div>
-        </div>
+        </main>
       </div>
     </div>
   );

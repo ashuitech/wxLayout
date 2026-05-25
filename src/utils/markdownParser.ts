@@ -9,9 +9,7 @@ export class MarkdownParser {
   private setupMarkedOptions() {
     marked.setOptions({
       gfm: true,
-      breaks: true,
-      headerIds: false,
-      mangle: false
+      breaks: true
     });
   }
 
