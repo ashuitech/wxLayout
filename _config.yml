@@ -1,0 +1,3 @@
+# Cloudflare Pages configuration
+exclude:
+  - node_modules
